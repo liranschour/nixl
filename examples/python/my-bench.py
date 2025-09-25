@@ -3,6 +3,7 @@ import logging
 import random
 import statistics
 import time
+from typing import List
 from venv import logger
 import torch
 from nixl._api import nixl_agent, nixl_agent_config
@@ -32,6 +33,25 @@ def register_mem(agent, t):
 
     return xfer_descs
 
+def parse_pattern(arg: str):
+    valid = {"seq", "rand"}
+    parts = arg.split(",")
+    if len(parts) != 2 or any(p not in valid for p in parts):
+        raise argparse.ArgumentTypeError(
+            "Pattern must be two values separated by a comma, each either 'seq' or 'rand'"
+        )
+    return tuple(parts)
+
+def get_block_indices(blocks: int, pattern: str) -> List[int]:
+    block_indices = None
+    match pattern:
+        case "rand":
+            block_indices = random.sample(range(blocks), blocks)
+        case "seq":
+            block_indices = list(range(blocks))
+
+    return block_indices
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
@@ -45,6 +65,10 @@ if __name__ == "__main__":
                     help="Transfer direction: h2h=host2host, h2d=host2device, d2h=device2host, d2d=device2device")
     parser.add_argument("--size_gb", "-s", type=float, default=8,
                     help="Total transfer size in GB (default: 8)")
+    parser.add_argument("--pattern", "-p",
+                    type=parse_pattern,
+                    default=("seq", "seq"),
+                    help="Access pattern as tuple: seq,seq | seq,rand | rand,seq | rand,rand (default: seq,seq)")
 
     args = parser.parse_args()
 
@@ -91,12 +115,12 @@ if __name__ == "__main__":
     )
 
     # start transfer
-    src_block_indices = random.sample(range(args.blocks), args.blocks)
-    dst_block_indices = random.sample(range(args.blocks), args.blocks)
+    src_block_indices = get_block_indices(args.blocks, args.pattern[0])
+    dst_block_indices = get_block_indices(args.blocks, args.pattern[1])
     xfer_size = args.blocks*block_len
 
     logger.info(f"Starting transfer with NIXL: direction={args.direction} msg_size={xfer_size} " \
-                f"blocks={args.blocks} iterations={args.iterations}")
+                f"blocks={args.blocks} iterations={args.iterations} pattern={args.pattern[0]},{args.pattern[1]}")
 
     bw_list = []
     for i in range(args.iterations):
