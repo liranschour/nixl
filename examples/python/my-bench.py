@@ -9,8 +9,8 @@ from nixl._api import nixl_agent, nixl_agent_config
 
 def register_mem(agent, t):
     mem_addr = [(t.data_ptr(), t.numel() * t.element_size(), 0, "a")]
-
-    reg_desc = agent.register_memory(mem_addr, "DRAM", ["UCX"])
+    mem_type = "VRAM" if t.is_cuda else "DRAM"
+    reg_desc = agent.register_memory(mem_addr, mem_type, ["UCX"])
     assert reg_desc is not None
 
     blocks = []
@@ -28,7 +28,7 @@ def register_mem(agent, t):
                 last_ptr = block.data_ptr()
                 blocks.append((last_ptr, block_len, 0))
 
-    xfer_descs = agent.get_xfer_descs(blocks, "DRAM")
+    xfer_descs = agent.get_xfer_descs(blocks, mem_type)
 
     return xfer_descs
 
@@ -40,24 +40,36 @@ if __name__ == "__main__":
                     help="Number of iterations to run")
     parser.add_argument("--blocks", "-b", type=int, default=4,
                     help="Number of blocks")
+    parser.add_argument("--direction", "-d", choices=["h2h", "h2d", "d2h", "d2d"],
+                    default="h2h",
+                    help="Transfer direction: h2h=host2host, h2d=host2device, d2h=device2host, d2d=device2device")
+    parser.add_argument("--size_gb", "-s", type=float, default=8,
+                    help="Total transfer size in GB (default: 8)")
 
     args = parser.parse_args()
 
     # tensor dimensions
-    cache_mem_size = 16*1024*1024*1024
+    cache_mem_size = args.size_gb*1024*1024*1024
     layers = 32
     kv = 2
     block_size = 128*1024
     blocks = cache_mem_size // (block_size*kv*layers*2)
 
-    # initailize nixl agents XXX
+    # initailize nixl agents
     agent_config = nixl_agent_config(backends=["UCX"])
     nixl_agent1 = nixl_agent("source", agent_config)
     nixl_agent2 = nixl_agent("target", agent_config)
 
     # allocate two tensors
-    src = torch.empty((layers, kv, blocks, block_size), dtype=torch.float16, device="cpu")
-    dst = torch.empty_like(src)
+    src_dev = "cpu"
+    if args.direction == "d2h" or args.direction == "d2d":
+        src_dev = "cuda"
+    dst_dev = "cpu"
+    if args.direction == "h2d" or args.direction == "d2d":
+        dst_dev = "cuda"
+
+    src = torch.empty((layers, kv, blocks, block_size), dtype=torch.float16, device=src_dev)
+    dst = torch.empty_like(src, device=dst_dev)
 
     block = src[0,0,0]
     block_len = block.numel() * block.element_size()
@@ -72,14 +84,14 @@ if __name__ == "__main__":
     remote_name = nixl_agent1.add_remote_agent(meta)
 
     local_prep_handle = nixl_agent1.prep_xfer_dlist(
-        "NIXL_INIT_AGENT", src_descs_ids, "DRAM"
+        "NIXL_INIT_AGENT", src_descs_ids, "VRAM" if src.is_cuda else "DRAM"
     )
     remote_prep_handle = nixl_agent1.prep_xfer_dlist(
-        remote_name, dst_descs_ids, "DRAM"
+        remote_name, dst_descs_ids, "VRAM" if dst.is_cuda else "DRAM"
     )
 
     # start transfer
-    logger.info(f"Starting transfer with NIXL... {args.blocks}")
+    logger.info(f"Starting transfer with NIXL: direction={args.direction} blocks={args.blocks}")
 
     src_block_indices = random.sample(range(args.blocks), args.blocks)
     dst_block_indices = random.sample(range(args.blocks), args.blocks)
