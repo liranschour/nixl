@@ -101,8 +101,9 @@ if __name__ == "__main__":
     bw_list = []
     for i in range(args.iterations):
         start = time.perf_counter()
+        msg_id = f"UUID{i}"
         xfer_handle = nixl_agent1.make_prepped_xfer(
-            "WRITE", local_prep_handle, src_block_indices, remote_prep_handle, dst_block_indices, b"UUID2"
+            "WRITE", local_prep_handle, src_block_indices, remote_prep_handle, dst_block_indices, msg_id.encode("utf-8")
         )
 
         if not local_prep_handle or not remote_prep_handle:
