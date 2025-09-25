@@ -42,11 +42,11 @@ def parse_pattern(arg: str):
         )
     return tuple(parts)
 
-def get_block_indices(blocks: int, pattern: str) -> List[int]:
+def get_block_indices(tot_blocks: int, blocks: int, pattern: str) -> List[int]:
     block_indices = None
     match pattern:
         case "rand":
-            block_indices = random.sample(range(blocks), blocks)
+            block_indices = random.sample(range(tot_blocks), blocks)
         case "seq":
             block_indices = list(range(blocks))
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     layers = 32
     kv = 2
     block_size = 128*1024
-    blocks = cache_mem_size // (block_size*kv*layers*2)
+    tot_blocks = cache_mem_size // (block_size*kv*layers*2)
 
     # initailize nixl agents
     agent_config = nixl_agent_config(backends=["UCX"])
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     if args.direction == "h2d" or args.direction == "d2d":
         dst_dev = "cuda"
 
-    src = torch.empty((layers, kv, blocks, block_size), dtype=torch.float16, device=src_dev)
+    src = torch.empty((layers, kv, tot_blocks, block_size), dtype=torch.float16, device=src_dev)
     dst = torch.empty_like(src, device=dst_dev)
 
     block = src[0,0,0]
@@ -115,8 +115,8 @@ if __name__ == "__main__":
     )
 
     # start transfer
-    src_block_indices = get_block_indices(args.blocks, args.pattern[0])
-    dst_block_indices = get_block_indices(args.blocks, args.pattern[1])
+    src_block_indices = get_block_indices(tot_blocks, args.blocks, args.pattern[0])
+    dst_block_indices = get_block_indices(tot_blocks, args.blocks, args.pattern[1])
     xfer_size = args.blocks*block_len
 
     logger.info(f"Starting transfer with NIXL: direction={args.direction} msg_size={xfer_size} " \
