@@ -91,11 +91,12 @@ if __name__ == "__main__":
     )
 
     # start transfer
-    logger.info(f"Starting transfer with NIXL: direction={args.direction} blocks={args.blocks}")
-
     src_block_indices = random.sample(range(args.blocks), args.blocks)
     dst_block_indices = random.sample(range(args.blocks), args.blocks)
     xfer_size = args.blocks*block_len
+
+    logger.info(f"Starting transfer with NIXL: direction={args.direction} msg_size={xfer_size} " \
+                f"blocks={args.blocks} iterations={args.iterations}")
 
     bw_list = []
     for i in range(args.iterations):
