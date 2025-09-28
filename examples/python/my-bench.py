@@ -95,8 +95,8 @@ if __name__ == "__main__":
     if args.direction == "h2d" or args.direction == "d2d":
         dst_dev = "cuda"
 
-    src = torch.empty((layers, kv, blocks_dim, block_size), dtype=torch.float16, device=src_dev)
-    dst = torch.empty_like(src, device=dst_dev)
+    src = torch.empty((layers, kv, blocks_dim, block_size), dtype=torch.float16, device=src_dev, pin_memory=True if src_dev=="cpu" else False)
+    dst = torch.empty_like(src, device=dst_dev, pin_memory=True if dst_dev=="cpu" else False)
 
     block = src[0,0,0]
     block_len = block.numel() * block.element_size()
