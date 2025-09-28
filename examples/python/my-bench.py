@@ -48,7 +48,7 @@ def get_block_indices(tot_blocks: int, blocks: int, pattern: str) -> List[int]:
         case "rand":
             block_indices = random.sample(range(tot_blocks), blocks)
         case "seq":
-            start = random.randint(0, tot_blocks - 1)
+            start = random.randint(0, tot_blocks - blocks)
             block_indices = [(start + i) % tot_blocks for i in range(blocks)]
 
     logger.debug(f"blocks={block_indices}")
