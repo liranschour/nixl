@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--direction", "-d", choices=["h2h", "h2d", "d2h", "d2d"],
                     default="h2h",
                     help="Transfer direction: h2h=host2host, h2d=host2device, d2h=device2host, d2d=device2device")
-    parser.add_argument("--size_gb", "-s", type=float, default=8,
+    parser.add_argument("--size_gb", "-s", type=int, default=8,
                     help="Total transfer size in GB (default: 8)")
     parser.add_argument("--pattern", "-p",
                     type=parse_pattern,
