@@ -165,8 +165,8 @@ if __name__ == "__main__":
                     nixl_agent1.release_xfer_handle(xfer_handle)
 
     # Calculate mean and median
-    mean_bw = statistics.mean(bw_list)
-    median_bw = statistics.median(bw_list)
+    mean_bw = statistics.mean(bw_list[1:])
+    median_bw = statistics.median(bw_list[1:])
 
     print(f"\nMean BW: {mean_bw:.3f} GB/s")
     print(f"Median BW: {median_bw:.3f} GB/s")
