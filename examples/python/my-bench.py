@@ -48,7 +48,10 @@ def get_block_indices(tot_blocks: int, blocks: int, pattern: str) -> List[int]:
         case "rand":
             block_indices = random.sample(range(tot_blocks), blocks)
         case "seq":
-            block_indices = list(range(blocks))
+            start = random.randint(0, tot_blocks - 1)
+            block_indices = [(start + i) % tot_blocks for i in range(blocks)]
+
+    logger.debug(f"blocks={block_indices}")
 
     return block_indices
 
@@ -115,8 +118,6 @@ if __name__ == "__main__":
     )
 
     # start transfer
-    src_block_indices = get_block_indices(blocks_dim*kv*layers, args.blocks, args.pattern[0])
-    dst_block_indices = get_block_indices(blocks_dim*kv*layers, args.blocks, args.pattern[1])
     xfer_size = args.blocks*block_len
 
     logger.info(f"Starting transfer with NIXL: direction={args.direction} msg_size={xfer_size} " \
@@ -126,6 +127,10 @@ if __name__ == "__main__":
     for i in range(args.iterations):
         start = time.perf_counter()
         msg_id = f"UUID{i}"
+
+        src_block_indices = get_block_indices(blocks_dim*kv*layers, args.blocks, args.pattern[0])
+        dst_block_indices = get_block_indices(blocks_dim*kv*layers, args.blocks, args.pattern[1])
+
         xfer_handle = nixl_agent1.make_prepped_xfer(
             "WRITE", local_prep_handle, src_block_indices, remote_prep_handle, dst_block_indices, msg_id.encode("utf-8")
         )
