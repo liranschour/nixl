@@ -14,6 +14,7 @@ Usage:
   python gpu_cpu_bench.py --mode two_agents
   python gpu_cpu_bench.py --mode single_agent
   python gpu_cpu_bench.py --mode two_agents --num_buffers 16 --buf_sizes 65536,1048576 --verify
+  python gpu_cpu_bench.py --mode two_agents --backend UCCL
 """
 
 import argparse
@@ -62,6 +63,12 @@ def parse_args():
         type=int,
         default=20,
         help="Number of timed iterations per buffer size (default: 20)",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="UCX",
+        help="NIXL backend to use (default: UCX, e.g. UCX, UCCL)",
     )
     parser.add_argument(
         "--gpu_id",
@@ -152,6 +159,7 @@ def bench_two_agents(args, buf_sizes):
             enable_prog_thread=True,
             enable_listen_thread=False,
             listen_port=0,
+            backends=[args.backend],
         )
         gpu_agent = nixl_agent("gpu_agent", config)
         cpu_agent = nixl_agent("cpu_agent", config)
@@ -228,6 +236,7 @@ def bench_single_agent(args, buf_sizes):
             enable_prog_thread=True,
             enable_listen_thread=False,
             listen_port=0,
+            backends=[args.backend],
         )
         agent = nixl_agent("nixl_agent", config)
 
@@ -279,9 +288,9 @@ def bench_single_agent(args, buf_sizes):
     return results
 
 
-def print_results(mode, num_buffers, bench_iters, results):
+def print_results(mode, backend, num_buffers, bench_iters, results):
     header = (
-        f"\nMode: {mode} | num_buffers={num_buffers} | bench_iters={bench_iters}"
+        f"\nMode: {mode} | backend={backend} | num_buffers={num_buffers} | bench_iters={bench_iters}"
     )
     sep = "-" * 52
     col = f"{'Buffer Size':>12}  {'Buf/Total':>14}  {'Throughput':>14}"
@@ -311,9 +320,10 @@ def main():
         raise ValueError("All buffer sizes must be positive")
 
     logger.info(
-        "Starting benchmark: mode=%s, num_buffers=%d, buf_sizes=%s, "
+        "Starting benchmark: mode=%s, backend=%s, num_buffers=%d, buf_sizes=%s, "
         "warmup=%d, bench=%d, gpu=%d",
         args.mode,
+        args.backend,
         args.num_buffers,
         [_fmt_size(s) for s in buf_sizes],
         args.warmup_iters,
@@ -326,7 +336,7 @@ def main():
     else:
         results = bench_single_agent(args, buf_sizes)
 
-    print_results(args.mode, args.num_buffers, args.bench_iters, results)
+    print_results(args.mode, args.backend, args.num_buffers, args.bench_iters, results)
 
 
 if __name__ == "__main__":
