@@ -97,7 +97,8 @@ nixlUcclEngine::nixlUcclEngine(const nixlBackendInitParams *init_params)
 
     size_t num_cpus = getNixlParam(custom_params, "num_cpus", 4);
     int in_python = getNixlParam(custom_params, "in_python", 1);
-    engine_ = uccl_engine_create(num_cpus, (in_python == 1));
+    int local_gpu_idx = getNixlParam(custom_params, "local_gpu_idx", 0);
+    engine_ = uccl_engine_create(num_cpus, (in_python == 1), local_gpu_idx);
     NIXL_DEBUG << "UCCL engine created";
 
     listener_thread_ = std::thread(&nixlUcclEngine::startListener, this);
@@ -186,13 +187,14 @@ nixl_status_t
 nixlUcclEngine::getPublicData(const nixlBackendMD *meta, std::string &str) const {
     nixlUcclBackendMD *priv = (nixlUcclBackendMD *)meta;
 
-    // Export fifo_item as hex string.
-    // The fifo_item is used to perform one-sided operation
+    // Hex-encode the unified token (RDMA FifoItem + IPC handle + metadata).
+    const char *bytes = reinterpret_cast<const char *>(&priv->token);
+    size_t nbytes = sizeof(uccl_mem_token_t);
     str.clear();
-    str.reserve(FIFO_SIZE * 2);
-    for (int i = 0; i < FIFO_SIZE; i++) {
+    str.reserve(nbytes * 2);
+    for (size_t i = 0; i < nbytes; i++) {
         char hex[3];
-        snprintf(hex, sizeof(hex), "%02x", static_cast<unsigned char>(priv->fifo_item[i]));
+        snprintf(hex, sizeof(hex), "%02x", static_cast<unsigned char>(bytes[i]));
         str += hex;
     }
 
@@ -311,10 +313,11 @@ nixlUcclEngine::registerMem(const nixlBlobDesc &mem,
     priv->ref_cnt = 1;
     priv->mr_id = mr;
 
-    // Pre-compute fifo_item for one-sided RDMA operations
-    result = uccl_engine_prepare_fifo(engine_, mr, (void *)mem.addr, mem.len, priv->fifo_item);
+    // Pre-compute unified transfer token (RDMA FifoItem + IPC handle for VRAM).
+    result = uccl_engine_prepare_token(engine_, mr, (void *)mem.addr, mem.len,
+                                       nixl_mem == VRAM_SEG, &priv->token);
     if (result != 0) {
-        NIXL_ERROR << "Failed to prepare fifo_item for memory region";
+        NIXL_ERROR << "Failed to prepare transfer token for memory region";
         uccl_engine_mr_destroy(engine_, mr);
         delete priv;
         return NIXL_ERR_BACKEND;
@@ -373,17 +376,19 @@ nixlUcclEngine::loadRemoteMD(const nixlBlobDesc &input,
     output_md->length = input.len;
     output_md->ref_cnt = 1;
 
-    // Decode fifo_item from hex string
+    // Decode unified token from hex string.
     const std::string &hex_str = input.metaInfo;
+    size_t token_bytes = sizeof(uccl_mem_token_t);
 
-    if (hex_str.length() == FIFO_SIZE * 2) {
-        for (int i = 0; i < FIFO_SIZE; i++) {
+    if (hex_str.length() == token_bytes * 2) {
+        char *bytes = reinterpret_cast<char *>(&output_md->token);
+        for (size_t i = 0; i < token_bytes; i++) {
             std::string byte_str = hex_str.substr(i * 2, 2);
-            output_md->fifo_item[i] = static_cast<char>(strtoul(byte_str.c_str(), NULL, 16));
+            bytes[i] = static_cast<char>(strtoul(byte_str.c_str(), NULL, 16));
         }
     } else {
-        NIXL_ERROR << "Invalid fifo_item hex string length: " << hex_str.length() << " (expected "
-                   << FIFO_SIZE * 2 << ")";
+        NIXL_ERROR << "Invalid token hex string length: " << hex_str.length()
+                   << " (expected " << token_bytes * 2 << ")";
         delete output_md;
         output = nullptr;
         return NIXL_ERR_INVALID_PARAM;
@@ -440,7 +445,7 @@ nixlUcclEngine::prepXfer(const nixl_xfer_op_t &operation,
     handle = new nixlUcclReqH(conn);
     nixlUcclReqH *uccl_handle = static_cast<nixlUcclReqH *>(handle);
 
-    uccl_handle->fifo_items.resize(lcnt);
+    uccl_handle->tokens.resize(lcnt);
 
     std::lock_guard<std::mutex> lock(mem_mutex_);
     for (size_t i = 0; i < lcnt; i++) {
@@ -456,10 +461,9 @@ nixlUcclEngine::prepXfer(const nixl_xfer_op_t &operation,
             return NIXL_ERR_BACKEND;
         }
 
-        // Deserialize fifo_item from char[] into FifoItem struct
-        deserialize_fifo_item(rmd->fifo_item, &uccl_handle->fifo_items[i]);
-
-        uccl_engine_update_fifo(uccl_handle->fifo_items[i], remote_addr, rsize);
+        // Copy the remote base token then patch it for the exact sub-buffer.
+        uccl_handle->tokens[i] = rmd->token;
+        uccl_engine_update_token(&uccl_handle->tokens[i], remote_addr, rsize);
     }
 
     return NIXL_SUCCESS;
@@ -541,12 +545,12 @@ nixlUcclEngine::postXfer(const nixl_xfer_op_t &operation,
     switch (operation) {
     case NIXL_READ: {
         result = uccl_engine_read_vector(
-            conn, mr_ids, addr_v, size_v, uccl_handle->fifo_items, lcnt, &transfer_id);
+            conn, mr_ids, addr_v, size_v, uccl_handle->tokens, lcnt, &transfer_id);
         break;
     }
     case NIXL_WRITE: {
         result = uccl_engine_write_vector(
-            conn, mr_ids, addr_v, size_v, uccl_handle->fifo_items, lcnt, &transfer_id);
+            conn, mr_ids, addr_v, size_v, uccl_handle->tokens, lcnt, &transfer_id);
         break;
     }
     default:

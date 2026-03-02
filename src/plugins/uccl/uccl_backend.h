@@ -139,7 +139,7 @@ private:
 class nixlUcclBackendMD : public nixlBackendMD {
 public:
     nixlUcclBackendMD(bool isPrivate) : nixlBackendMD(isPrivate) {
-        memset(fifo_item, 0, FIFO_SIZE);
+        memset(&token, 0, sizeof(token));
     }
 
     virtual ~nixlUcclBackendMD() {}
@@ -148,7 +148,7 @@ public:
     size_t length;
     int ref_cnt;
     uccl_mr_t mr_id; // UCCL memory region id
-    char fifo_item[FIFO_SIZE];
+    uccl_mem_token_t token; // unified RDMA + IPC transfer token
 };
 
 // UCCL Backend Request Handle
@@ -161,7 +161,7 @@ public:
     uccl_conn_t *conn;
     uint64_t transfer_id;
     nixl_blob_t notif_msg;
-    std::vector<FifoItem> fifo_items;
+    std::vector<uccl_mem_token_t> tokens; // per-iovec tokens (patched for sub-buffer)
 };
 
 #endif
